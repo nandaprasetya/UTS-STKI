@@ -3,6 +3,13 @@ import chromadb
 import ollama
 import gradio as gr
 import re
+import os
+from google import genai
+from google.genai import errors
+
+client = genai.Client(
+    api_key="Pakai Key Sendiri Jangan Pakai Key Ku -Nanda"
+)
 
 # Inisialisasi
 emb     = SentenceTransformer("intfloat/multilingual-e5-small")
@@ -172,13 +179,15 @@ def chat(pertanyaan: str, riwayat: list) -> str:
     sumber_set = list(set(m["sumber"] for m in meta_f))
     prompt     = bangun_prompt(pertanyaan, konteks, intent)
 
-    res = ollama.chat(
-        model    = "gemma2:2b",
-        messages = [{"role": "user", "content": prompt}],
-        options  = {"temperature": 0.05},
+    response = client.models.generate_content(
+        model="gemma-4-31b-it",
+        contents=prompt,
+        config={
+            "temperature": 0.05,
+        }
     )
 
-    jawaban    = res["message"]["content"]
+    jawaban = response.text
     sumber_str = ", ".join(sumber_set) if sumber_set else "tidak diketahui"
     return f"{jawaban}\n\n📄 Sumber: {sumber_str}"
 
