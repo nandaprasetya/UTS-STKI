@@ -1,15 +1,10 @@
-"""
-chatbot.py — Revisi anti-halusinasi + dukungan perbandingan kurikulum
-"""
-
 from sentence_transformers import SentenceTransformer
 import chromadb
 import ollama
 import gradio as gr
 import re
 
-# ─── Inisialisasi ─────────────────────────────────────────────────────────────
-
+# Inisialisasi
 emb     = SentenceTransformer("intfloat/multilingual-e5-small")
 koleksi = chromadb.PersistentClient(path="chroma_db/").get_collection("dokumen_kampus")
 
@@ -30,25 +25,13 @@ KATA_BANDING = [
 ]
 
 
-# ─── Ekstrak intent ───────────────────────────────────────────────────────────
-
+# Ekstrak intent
 def ekstrak_intent(pertanyaan: str) -> dict:
-    """
-    Deteksi:
-    - Semua tahun kurikulum yang disebut (bisa >1 untuk perbandingan)
-    - Semester yang diminta
-    - Mode: 'single' | 'compare'
-    """
     p = pertanyaan.lower()
-
-    # Semua tahun yang disebut
     tahun_disebut = [th for th in KURIKULUM if th in p]
-
-    # Mode perbandingan jika ≥2 tahun ATAU ada kata kunci perbandingan
     is_compare = len(tahun_disebut) >= 2 or any(k in p for k in KATA_BANDING)
     mode = "compare" if is_compare else "single"
 
-    # Semester
     semester = None
     m = re.search(r"semester\s+(viii|vii|vi|iv|v|iii|ii|i)\b", p)
     if m:
@@ -66,26 +49,16 @@ def ekstrak_intent(pertanyaan: str) -> dict:
     }
 
 
-# ─── Bangun filter ChromaDB ───────────────────────────────────────────────────
-
+# Bangun filter ChromaDB
 def bangun_filter(intent: dict) -> dict | None:
-    """
-    - Mode single  : filter sumber + semester (jika ada)
-    - Mode compare : filter $or kedua sumber, TANPA filter semester
-                     (agar kedua kurikulum masuk konteks)
-    """
     if intent["mode"] == "compare":
         tahun_valid = [th for th in intent["tahun_list"] if th in KURIKULUM]
         if len(tahun_valid) == 0:
             return None
         if len(tahun_valid) == 1:
-            # Hanya 1 tahun terdeteksi tapi mode compare (kata "perbedaan" dll)
-            # → ambil semua dokumen tanpa filter sumber
             return None
-        # ≥2 tahun → filter $or kedua sumber
         return {"$or": [{"sumber": {"$eq": KURIKULUM[th]}} for th in tahun_valid]}
 
-    # Mode single
     kondisi = []
     if intent["tahun"] and intent["tahun"] in KURIKULUM:
         kondisi.append({"sumber": {"$eq": KURIKULUM[intent["tahun"]]}})
@@ -99,13 +72,8 @@ def bangun_filter(intent: dict) -> dict | None:
     return {"$and": kondisi}
 
 
-# ─── Post-filter ──────────────────────────────────────────────────────────────
-
+# Post-filter
 def post_filter(dok_list, meta_list, intent):
-    """
-    Mode single: buang chunk semester yang salah.
-    Mode compare: tidak difilter per semester (biarkan kedua kurikulum masuk).
-    """
     if intent["mode"] == "compare" or not intent["semester"]:
         return dok_list, meta_list
 
@@ -124,8 +92,7 @@ def post_filter(dok_list, meta_list, intent):
     return dok_ok, meta_ok
 
 
-# ─── Bangun prompt ────────────────────────────────────────────────────────────
-
+# Bangun prompt
 def bangun_prompt(pertanyaan, konteks, intent):
     info_smt = f"Semester {intent['semester']}" if intent["semester"] else "semua semester"
 
@@ -172,8 +139,7 @@ PERTANYAAN: {pertanyaan}
 JAWABAN:"""
 
 
-# ─── Fungsi chat utama ────────────────────────────────────────────────────────
-
+# Fungsi chat utama
 def chat(pertanyaan: str, riwayat: list) -> str:
     intent = ekstrak_intent(pertanyaan)
     print(f"\n[DEBUG] Pertanyaan : {pertanyaan}")
@@ -195,9 +161,7 @@ def chat(pertanyaan: str, riwayat: list) -> str:
     dok_f, meta_f = post_filter(dok_raw, meta_raw, intent)
     print(f"[DEBUG] Setelah pf : {len(dok_f)} chunk")
 
-    # Untuk mode compare: ambil lebih banyak chunk, pisahkan per sumber
     if intent["mode"] == "compare":
-        # Urutkan: kelompokkan per sumber agar LLM mudah membandingkan
         pasangan = sorted(zip(dok_f, meta_f), key=lambda x: x[1].get("sumber", ""))
         dok_sorted  = [d for d, _ in pasangan]
         meta_sorted = [m for _, m in pasangan]
@@ -219,8 +183,7 @@ def chat(pertanyaan: str, riwayat: list) -> str:
     return f"{jawaban}\n\n📄 Sumber: {sumber_str}"
 
 
-# ─── Launch Gradio ────────────────────────────────────────────────────────────
-
+# Launch Gradio
 gr.ChatInterface(
     fn          = chat,
     title       = "Chatbot Kampus — PSTI FT Unud",
